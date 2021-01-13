@@ -1,0 +1,3 @@
+MLP Reduced Average error ~ 55 RMSE
+ELM Reduced Average Error ~ 75 RMSE
+ELM whole Feature set ~ 100 RMSE
