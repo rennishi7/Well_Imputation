@@ -1,2 +1,0 @@
-Begin date:   1960 , End date:  , 2015
-Well,                  ME,     MAPE,     RMSE,       R2
