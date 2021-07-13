@@ -1,2 +1,0 @@
-https://hydro1.gesdisc.eosdis.nasa.gov/data/GLDAS/GLDAS_NOAH025_M.2.0/1976/GLDAS_NOAH025_M.A197602.020.nc4
-https://hydro1.gesdisc.eosdis.nasa.gov/data/GLDAS/GLDAS_NOAH025_M.2.0/1992/GLDAS_NOAH025_M.A199204.020.nc4

@@ -1,5 +1,0 @@
-cd C:\Users\saulg\Desktop\GLDAS\
-
-wget --load-cookies C:\Users\saulg\Desktop\GLDAS\.urs_cookies --save-cookies C:\Users\saulg\Desktop\GLDAS\.urs_cookies --auth-no-challenge=on --keep-session-cookies --user=Saul.Ramirez --ask-password --content-disposition -i months_left.txt
-
-NASAdata1
