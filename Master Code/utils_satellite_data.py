@@ -5,6 +5,7 @@ Created on Tue Jun 29 09:03:10 2021
 @author: saulg
 """
 import numpy as np
+import os
 import fiona
 import shapely
 import datetime as dt
@@ -13,17 +14,23 @@ import pickle
 import grids
 
 class utils_netCDF():
-    def __init__(self, north_east_corner_lat, south_west_corner_lat, north_east_corner_lon,
-             south_west_corner_lon, dx, dy):
+    def __init__(self, data_root ='./Datasets'):
+        # Data Root is the location where data will be saved to. Saved to class
+        # in order to reference later in other functions.
+        if os.path.isdir(data_root) is False:
+            os.makedirs(data_root)
+        self.Data_root = data_root
+        pass
+    
+    def netCDF_Grid_Creation(self, north_east_corner_lat, south_west_corner_lat, 
+                             north_east_corner_lon, south_west_corner_lon, dx, dy,):
         self.dx = dx
         self.dy = dy
         self.nec_lat = north_east_corner_lat
         self.swc_lat = south_west_corner_lat
         self.nec_lon = north_east_corner_lon
         self.swc_lon = south_west_corner_lon
-        pass
-    
-    def netCDF_Grid_Creation(self):
+        
         lat_range = np.arange(self.nec_lat, self.swc_lat - self.dy, -self.dy).tolist()
         lon_range = np.arange(self.swc_lon, self.nec_lon + self.dx,  self.dx).tolist()      
         grid_locations = dict()
@@ -40,11 +47,11 @@ class utils_netCDF():
         user_shape_boundary = user_shape.bounds
         return user_shape_boundary
     
-    def Find_intercepting_cells(self, grid_locations, padding=True, buffer=None):
+    def Find_intercepting_cells(self, grid_locations, bound_location, padding=True, buffer=None):
         self.padding = padding
         if self.padding == True and buffer == None: self.buffer=(self.dx/2, self.dy/2)
         cells = dict.fromkeys(grid_locations.keys(),[])
-        boundary = self.Shape_Boundary(self.shape_file_path)
+        boundary = bound_location
         
         if self.padding: new_shape = shapely.geometry.Polygon((
             [boundary[0] - self.buffer[0], boundary[1] - self.buffer[1]], 
@@ -77,19 +84,14 @@ class utils_netCDF():
         return dates
     
     def Save_Pickle(self, Data, name:str, path:str):
-        name_structure = Pickle_Data_Structure(name)
         with open(path + '/' + name + '.pickle', 'wb') as handle:
-            pickle.dump(Data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump(Data, handle, protocol=4)
             
     def read_pickle(self, file, root):
         file = root + file + '.pickle'
         with open(file, 'rb') as handle:
             data = pickle.load(handle)
-        return data
-
-class Pickle_Data_Structure():
-    def __init__(self, name):
-        self.name = name        
+        return data      
 
 class grids_netCDF():
     def __init__(self, File_String=True, Variable_String=True, dim_order = None):
@@ -125,7 +127,7 @@ class grids_netCDF():
             print('Variable List Made.') 
         return Variables
         
-    def Parse_Data(self, Mask, dates, data_path = None, data_root=None, name_text=None, variable_name=None, variable_path=None):
+    def Parse_Data(self, Mask, dates, data_path = None, data_folder=None, file_list=None, variable_name=None, variables_list=None):
         Data = dict.fromkeys(Mask.keys(),[])
         df_temp = pd.DataFrame(index=list(Mask.keys()), columns =(['Longitude', 'Latitude']))
         for i, cell in enumerate(Mask):
@@ -133,11 +135,12 @@ class grids_netCDF():
         Data['Location'] = df_temp
  
         print('Loading netCDF location.')
-        Data_Location = self._Data_List(data_path, data_root, name_text)
+        Data_Location = self._Data_List(data_path, data_folder, file_list)
         print('Creating Variables')
-        Variables = self._Variable_List(variable_name, variable_path)
+        Variables = self._Variable_List(variable_name, variables_list)
         print('Preparing to parse Data.')
         
+        # Gets the all of the values for every variable
         Variable_Dictionary = dict()
         for j, var in enumerate(Variables):
             print('Working on ' + var + ' ' + str(j+1)+ '/' + str(len(Variables)))
@@ -154,7 +157,7 @@ class grids_netCDF():
             df.columns = col_rename
             Variable_Dictionary[var] = df
 
-        
+        # Splits the variables and assigns to proper cell
         for i, cell in enumerate(Mask):
             print('Parsing ' + cell + ' ' + str(i+1)+ '/' + str(len(Mask)))
             feature_df = pd.DataFrame(index=dates)
@@ -182,6 +185,7 @@ class grids_netCDF():
             except: 
                 print('Error with cell: ' + cell + '. Cell Not Validated.')
                 pass
+        print('Data Validated.')
         return Data
     
     

@@ -2,7 +2,7 @@
 """
 Created on Wed Sep 23 17:12:27 2020
 
-@author: saulg
+@author: Saul Ramirez, PhD
 """
 import os
 import pickle
@@ -14,72 +14,115 @@ from pandas import DatetimeIndex
 from scipy import interpolate
 
 
+# Support Script for Groundwater Imputation Tool 
+# This script opens preprocessed pickle file containing 3 DataFrames: Centroid,
+# Well Timeseries, and well location.
+# High level does 3 things:
+# 1: Extracts Well Time series, and drops any well without a minimum amount
+#    of Data within a user specified window
+# 2: Interpolates subset of data, removing gaps larger than user specified size
+#    Gaps will be filled in using a machine learning algorithm. This step
+#    is based on the assumption that groundwater changes are slow, and readings
+#    will remain valid for a time period after the original reading.
+# 3: Contains support functions of data augmentation such as Rolling-Window 
+#    averages and plotting. 
+
+
 class wellfunc():
-    def __init__(self):
-        if os.path.isdir('./Datasets') is False:
-            os.makedirs('./Datasets')
-        self.Data_root = "./Datasets/"
+    # Establish where files are located. If location doesn't exist, it will 
+    # create a new location.
+    def __init__(self, data_root ='./Datasets', aquifer_root ='./Aquifers Data', figures_root = './Figures Aquifer'):
+        # Data Root is the location where data will be saved to. Saved to class
+        # in order to reference later in other functions.
+        if os.path.isdir(data_root) is False:
+            os.makedirs(data_root)
+        self.Data_root = data_root
         
-        if os.path.isdir('./Aquifers Data') is False:
-            os.makedirs('./Aquifers Data')
+        # Aquifer Root is the location of Raw Aquifer pickle file. The file
+        # structure of the aquifer pickle is a python dictionary with 3 
+        # DataFrames: Cetroid, Data, and Location
+        if os.path.isdir(aquifer_root) is False:
+            os.makedirs(aquifer_root)
             print('The Aquifer folder with data is empty')
-        self.Aquifer_root = "./Aquifers Data/"
+        self.Aquifer_root = aquifer_root
+        
+        # Fquifer Root is the location to save figures.
+        if os.path.isdir(figures_root) is False:
+            os.makedirs(figures_root)
+        self.figures_root = figures_root
         
     '''###################################
                 Well Data Sampling
     '''###################################
 
-    ##### Opens well json and loads data
+    # Specifically opens raw aquifer pickle file.
     def read_well_pickle(self, well_file):
-        self.wellfile = self.Aquifer_root + well_file + '.pickle'
+        self.wellfile = self.Aquifer_root + '/' + well_file + '.pickle'
         with open(self.wellfile, 'rb') as handle:
             wells = pickle.load(handle)
         return wells
     
+    # Opens generic pickle file based on file path and loads data.
     def read_pickle(self, file, root):
         file = root + file + '.pickle'
         with open(file, 'rb') as handle:
             data = pickle.load(handle)
         return data
 
+    # Saves generic pickle file based on file path and loads data.
     def Save_Pickle(self, Data, name:str):
         with open(self.Data_root + name + '.pickle', 'wb') as handle:
-            pickle.dump(Data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump(Data, handle, protocol=4)
     
-    def extractwelldata(self, wells,Bcap=1948,Fcap=2018, MinExTotal=50):
-        if Bcap>Fcap:
-            print('Error: Bottom Cap Year is greater than Final Cap year.')
-            exit()
-        #Needs to add error handle of caps boundaries outside of dataset size
-        if MinExTotal<1:
-            print('Error: Original Data dataframe must have at least 1 example.')
-            exit()
-        #Unpack Lat and Long, and Centroid
-        location_df = wells['Location']
-        centroid = wells['Centroid']
+    # Extracts Well Time series, and drops any well without a minimum amount
+    # of Data (MinExTotal) within a user specified window (Left, Right)
+    def extractwelldata(self, wells, Left=1948, Right=2018, Min_Obs_Months=50):
+        # Validates that right-side window is greater than left-side window.
+        assert Left < Right, 'Error: Left Cap Year is greater than Right Cap year.'
+
+        # Validates that Aquifer pickle dataframe contains 
+        assert Min_Obs_Months > 0, 'Error: Original Data dataframe must have at least 1 example.' 
         
-        #Create Emtpy Dataframe for Well Time Series
-        well_fit = pd.DataFrame()
-        #Create Caps as pandas time stamps to compare dates
-        begtime = pd.Timestamp(dt.datetime(Bcap, 1, 1))# data before this date
-        endtime = pd.Timestamp(dt.datetime(Fcap, 1, 1))# data after this date
+        wells_dict = dict() #Create data dictionary, used to return data
         
-        #Create Subset to speed algorithm
-        #greater than the start date and smaller than the end date
+        #Create caps as pandas time stamps to compare dates
+        begtime = pd.Timestamp(dt.datetime(Left, 1, 1))# data before this date
+        endtime = pd.Timestamp(dt.datetime(Right, 1, 1))# data after this date
+        
+        # Vectorized subsetting of well data. Mask wells with data between 
+        # left cap (begtime) and right cap (endtime). Results in binary array
+        # showing wells within time range containing specified number of points.
         mask = (wells['Data'].index > begtime) & (wells['Data'].index < endtime)
-        well_subset_test = wells['Data'].loc[mask]
-        # Drop any column in subset that has less than MinExTotal non empty cells
-        well_subset_test = well_subset_test.drop(well_subset_test.columns[well_subset_test.apply(lambda col: col.notnull().sum() < MinExTotal)], axis=1)
-        #Creating Well subset Data
-        well_fit = wells['Data'][well_subset_test.columns]
-        #Create new Locations Dataframe
-        location_df = location_df.loc[well_fit.columns]
-        #Create new Centroid Data Frame
-        centroid.loc['Latitude'][0] = location_df['Latitude'].min() + ((location_df['Latitude'].max() - location_df['Latitude'].min())/2)
+        well_subset = wells['Data'].loc[mask]
+        
+        # Creates subset of well data between caps. Determines number of unique
+        # months, by determining the number unique (Year/Month) codings. Drop 
+        # any column in subset that has less than MinExTotal non empty cells
+        well_subset = well_subset.drop(well_subset.columns[well_subset.apply(
+            lambda col: len(np.unique((col.dropna().index).strftime('%Y/%m')).tolist()) < Min_Obs_Months)], axis=1)
+
+
+        # Creating filtered Well Data DataFrame. This DataFrame will include 
+        # all values for the wells selected in the pervious function- including
+        # values outside of the caps range
+        wells_dict['Data'] = wells['Data'][well_subset.columns]
+        
+        
+        # Unpack dataframe well coorindates: Lat Long
+        location_df = wells['Location']
+        # Create new Locations dataframe with only wells that exist in the data.
+        location_df = location_df.loc[wells_dict['Data'].columns]
+        wells_dict['Location'] = location_df   
+        
+        
+        # Unpack dataframe of well location centroid
+        centroid = wells['Centroid']
+        # Create new Centroid Data Frame
+        centroid.loc['Latitude'][0]  = location_df['Latitude'].min()  + ((location_df['Latitude'].max()  - location_df['Latitude'].min())/2)
         centroid.loc['Longitude'][0] = location_df['Longitude'].min() + ((location_df['Longitude'].max() - location_df['Longitude'].min())/2)
-        self.CentroidY = round(centroid.loc['Latitude'][0], 1)
-        self.CentroidX = round(centroid.loc['Longitude'][0], 1)
-        return well_fit, location_df, centroid
+        wells_dict['Centroid'] = centroid
+        
+        return wells_dict
         
     def interp_well(self, wells_df, gap_size = '365 days', pad = 90, spacing = '1MS'):
         # gaps bigger than this are set to nan
@@ -120,111 +163,39 @@ class wellfunc():
         # return a pd data frame with interpolated wells - gaps with nans
         return well_interp_df
 
+
     '''###################################
                 Plotting Functions
     '''###################################
     def well_plot(self, combined_df, well_df, plot_wells):
-        # plot some of the wells just to look
-        well_names = well_df.columns
         if plot_wells:
+            # plot some of the wells just to look
+            well_names = well_df.columns
             somewells = well_names[0:5] # first 5 wells
             well = well_names[-1]  # last well in the file
-    
-            combined_df.plot(y=somewells, style='.')
+
+            combined_df.plot(y=somewells, style='.')            
+            plt.title('Observations of first 5 Wells')
+            plt.savefig(self.figures_root + '/' + '_First_Five_Wells_Observations')            
+            plt.show()
+        
+            plt.figure(4)
             well_df.plot(y=somewells, style='-')
-            plt.title('Some example wells')
-    
-            plt.figure(3)
+            plt.title('Example wells')
+            plt.savefig(self.figures_root + '/' + '_First_Five_Wells_Interpolation')           
+            plt.show()
+            
+            plt.figure(5)
             plt.plot(combined_df[well], '*')
             plt.plot(well_df[well])
-            plt.title('Measured and Interpolated data for well ' + str(well))
-    
-            plt.figure(4)
+            plt.title('Interpolation with Gaps and padding for well: ' + str(well))
+            plt.savefig(self.figures_root + '/' + '_Interpolation_with_Gaps')       
+            plt.show()
+            
+            plt.figure(6)
             plt.plot(well_df)
             plt.plot(combined_df[well_names], '-.')
-            plt.title('Measured and Interpolated data for all wells and Satellite Data')
-
-    
-    def plot_sat_data(self, feature_df, plot_data):
-
-        if plot_data:
-            x=len(feature_df.columns)
-            nrows = int(np.ceil(x/2))
-            if x == 1:
-                ncol = 1
-            else: ncol = 2
-
-        if len(feature_df.columns) > 1:
-            fig, ax= plt.subplots(nrows,ncol)
-            #ax=ax.flatten()
-            for i,p in enumerate(feature_df.columns):
-                df0=feature_df[[feature_df.columns[i]]]
-                df0.plot(title=p,ax=ax[i])
-                stats=feature_df[feature_df.columns[i]]
-                print(feature_df.columns[i],' ',stats)
-        else:
-            plt.figure(5)
-            plt.plot(feature_df.index, feature_df.iloc[:,0], title = feature_df.columns)
-    
-    '''###################################
-                Satellite Resampling
-    '''###################################
-    
-    def sat_resample(self, feature_df):
-        # resamples the data from both datasets to a monthly value,
-        # uses the mean of all measurements in a month
-        # first resample to daily values, then take the start of the month
-        feature_df = feature_df.resample('D').mean()
-        # D is daily, mean averages any values in a given day, if no data in that day, gives NaN
-    
-        feature_df.interpolate(method='pchip', inplace=True, limit_area='inside')
-        
-        # MS means "month start" or to the start of the month, this is the interpolated value
-        feature_df = feature_df.resample('MS').first()
-        return feature_df
-
-
-    '''###################################
-                DATA PROCESSING METHODS
-    '''###################################
-
-    def DropNA(self, df):
-        df.dropna(axis=0, inplace=True)
-        return df
-        
-    def Rolling_Window(self, Feature_Data, Names, years=[1, 3, 5, 10]):
-        # This loop adds the yearly, 3-year, 5-year, and 10-year rolling averages of each variable to the dataframe
-        # rolling averages uses the preceding time to compute the last value, e.g., using the preceding 5 years of data to get todays
-        # Causes the loss of X number of data points
-        for name in Names:
-            for year in years:
-                new = name + '_rw_yr_' + str(year).zfill(2)
-                Feature_Data[new] = Feature_Data[name].rolling(year * 12).mean()
-        return Feature_Data.dropna()
-
-
-    def sat_offsets(self, Feature_Data, Names, offsets=[0.5,1,2,3]):
-        # This loop adds straight offsets of original features in yearly increments
-        for name in Names:
-            for year in offsets:
-                new = name + '_offset_' + str(year).zfill(3)
-                Feature_Data[new] = Feature_Data[name].shift(int(year * 12))
-        return Feature_Data
-
-
-    def sat_cumsum(self, Feature_Data, Names):
-        for name in Names:
-            new = name + '_int'
-            Feature_Data[new] = (Feature_Data[name] - Feature_Data[name].mean()).cumsum()          
-        return Feature_Data
-    
-    
-    def Delete_Data(self, Feature_Data, DeleteNames=[]):
-        # Deletes Features by name if desired
-        # Must be input as list of strings where the strings are the name of the feautre
-        if len(DeleteNames) > 0:
-            for i in range(len(DeleteNames)):
-                del Feature_Data[str(DeleteNames[i])]          
-        return Feature_Data
-
-
+            plt.title('Wells in Aquifer with Gaps and Padding')
+            plt.savefig(self.figures_root + '/' + '_Interpolation_with_Gaps_Aquifer')            
+            plt.show()
+     

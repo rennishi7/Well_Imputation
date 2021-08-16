@@ -5,30 +5,28 @@ Created on Fri Dec 11 12:47:46 2020
 @author: saulg
 """
 
-import os
-import utils_well_data as wf  # file that holds the code for this project
+import utils_data_augmentation # file that holds the code for this project
 
-New = True
-Plot = True
-# Location must be added
-# Options, as string: 'Escalante' 'Cedar Valley'
-if os.path.isdir('./Datasets') is False:
-    os.makedirs('./Datasets')
-    print('Data is not in Datasets folder')
-root = "./Datasets/"
+# This script will calculate modifications to datasets. Particularly this
+# loadas the GLDAS Data pickle file, and performs a forward rolling window.
+# This will cause the data to lose months of data equivilating to the largest
+# window size. 
 
 # Importing well object class
-Wells=wf.wellfunc()
+DA = utils_data_augmentation.Data_Augmentation()
 
-#Load Data
-Data = Wells.read_pickle('GLDAS_Data', root)
+# Load GLDAS Data
+Data = DA.read_pickle('GLDAS_Data', root = './Datasets/')
 cell_names = list(Data.keys())
-cell_names.remove('Location')
+cell_names.remove('Location') # Remove location
 
+# Loop through every cell in the dataset performing augmentations. We only used
+# FRWA, however, offsets and cumulative averages are available.
 for i, cell in enumerate(cell_names):
-    data_temp = Data[cell]
-    data_temp = Wells.Rolling_Window(data_temp, data_temp.columns, years=[1, 3, 5])
+    data_temp = Data[cell] 
+    data_temp = DA.Rolling_Window(data_temp, data_temp.columns, years=[1, 3, 5])
     Data[cell] = data_temp
 
-Wells.Save_Pickle(Data, 'GLDAS_Data_Augmented')
+# Save Data
+DA.Save_Pickle(Data, 'GLDAS_Data_Augmented')
 

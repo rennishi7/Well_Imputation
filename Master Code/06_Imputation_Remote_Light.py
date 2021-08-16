@@ -7,7 +7,7 @@ Created on Sat Dec 12 12:32:26 2020
 
 import pandas as pd
 import numpy as np
-import utils_imputation
+import utils_machine_learning
 import warnings
 from scipy.spatial.distance import cdist
 
@@ -31,7 +31,7 @@ data_root =    './Datasets/'
 figures_root = './Figures Imputed'
 
 ###### Model Setup
-imputation = utils_imputation.utils_imputation(data_root, figures_root)
+imputation = utils_machine_learning.imputation(data_root, figures_root)
 
 ###### Measured Well Data
 Original_Raw_Points = pd.read_hdf(data_root + '03_Original_Points.h5')
@@ -96,46 +96,32 @@ for i, well in enumerate(Well_Data['Data'].columns):
         Well_set = Well_set[Well_set[Well_set.columns[1]].notnull()]
         Well_set_clean = Well_set.dropna()
         Y, X = imputation.Data_Split(Well_set_clean, well)
-        (Y_kfold, X_kfold) = (Y.to_numpy(), X.to_numpy())
-        kfold = KFold(n_splits = 10, shuffle = True)
         temp_metrics = pd.DataFrame(columns=['Train MSE', 'Validation MSE', 'Test MSE'])
-        j = 1
-        for train_index, test_index in kfold.split(Y_kfold, X_kfold):
-            x_train, x_test = X_kfold[train_index], X_kfold[test_index]
-            y_train, y_test = Y_kfold[train_index], Y_kfold[test_index]
-            x_train, x_val, y_train, y_val = train_test_split(x_train, y_train, test_size=0.30, random_state=42)
+        x_train, x_val, y_train, y_val = train_test_split(X, Y, test_size=0.30, random_state=42)
 
-        ###### Model Initialization
-            hidden_nodes = 300
-            opt = Adam(learning_rate=0.001)
-            model = Sequential()
-            model.add(Dense(hidden_nodes, input_dim = X.shape[1], activation = 'relu', use_bias=True,
-                kernel_initializer='glorot_uniform', kernel_regularizer= L2(l2=0.01))) #he_normal
-            model.add(Dropout(rate=0.2))
-            model.add(Dense(1))
-            model.compile(optimizer = opt, loss='mse')
-        
-        ###### Hyper Paramter Adjustments
-            early_stopping = callbacks.EarlyStopping(monitor='val_loss', patience=5, min_delta=0.0, restore_best_weights=True)
-            history = model.fit(x_train, y_train, epochs=500, validation_data = (x_val, y_val), verbose= 3, callbacks=[early_stopping])
-            train_error = model.evaluate(x_train, y_train)
-            validation_error = model.evaluate(x_val, y_val)
-            test_error = model.evaluate(x_test, y_test)
-            df_metrics = pd.DataFrame(np.array([train_error, validation_error, test_error]).reshape((1,3)), 
-                                      index=([str(j)]), columns=(['Train MSE','Validation MSE','Test MSE']))
-            temp_metrics = pd.concat(objs=[temp_metrics, df_metrics])
-            print(j)
-            j += 1
-        
-        ###### Permutation Feature Importance
-        print('Working on Permutation Feature Importance...')
-        results = permutation_importance(model, x_test, y_test, n_repeats=5, random_state=42, scoring='neg_mean_squared_error')
-        importance_df = pd.DataFrame(results.importances_mean, index = Feature_Data.columns, columns=([well])).sort_index(ascending=True).transpose()
-        Feature_Importance = Feature_Importance.append(importance_df)
-        
+    ###### Model Initialization
+        hidden_nodes = 300
+        opt = Adam(learning_rate=0.001)
+        model = Sequential()
+        model.add(Dense(hidden_nodes, input_dim = X.shape[1], activation = 'relu', use_bias=True,
+            kernel_initializer='glorot_uniform', kernel_regularizer= L2(l2=0.01))) #he_normal
+        model.add(Dropout(rate=0.2))
+        model.add(Dense(1))
+        model.compile(optimizer = opt, loss='mse')
+    
+    ###### Hyper Paramter Adjustments
+        early_stopping = callbacks.EarlyStopping(monitor='val_loss', patience=5, min_delta=0.0, restore_best_weights=True)
+        history = model.fit(x_train, y_train, epochs=500, validation_data = (x_val, y_val), verbose= 3, callbacks=[early_stopping])
+        train_error = model.evaluate(x_train, y_train)
+        validation_error = model.evaluate(x_val, y_val)
+        df_metrics = pd.DataFrame(np.array([train_error, validation_error]).reshape((1,2)), 
+                                  index=([str(j)]), columns=(['Train MSE','Validation MSE']))
+        temp_metrics = pd.concat(objs=[temp_metrics, df_metrics])
+        print(j)
+        j += 1
         ###### Score and Tracking Metrics
         Sum_Metrics.loc[cell] = temp_metrics.mean()
-        y_test_hat = model.predict(x_test)
+        y_val_hat = model.predict(x_val)
         
         ###### Model Prediction
         Prediction = pd.DataFrame(well_scaler.inverse_transform(model.predict(Feature_Data)), index=Feature_Data.index, columns = ['Prediction'])
@@ -145,7 +131,7 @@ for i, well in enumerate(Well_Data['Data'].columns):
 
         ###### Model Plots
         imputation.Model_Training_Metrics_plot(history.history, str(well))
-        imputation.Q_Q_plot(y_test_hat, y_test, str(well))
+        imputation.Q_Q_plot(y_val_hat, y_val, str(well))
         imputation.observeation_vs_prediction_plot(Prediction.index, Prediction['Prediction'], Well_set_original.index, Well_set_original, str(well))
         imputation.observeation_vs_imputation_plot(Imputed_Data.index, Imputed_Data[well], Well_set_original.index, Well_set_original, str(well))
         imputation.raw_observation_vs_prediction(Prediction, Raw, str(well), aquifer_name)
@@ -155,12 +141,8 @@ for i, well in enumerate(Well_Data['Data'].columns):
     except Exception as e:
         n_wells -= 1
         print(e)
-
-
+        
+Well_Data['Data'] = Imputed_Data
 Sum_Metrics.to_hdf(data_root  + '/' + '06_Metrics.h5', key='metrics', mode='w')
-imputation.Feature_Importance_box_plot(Feature_Importance)
-Feature_Importance.to_pickle(data_root  + '/' + 'Feature_Importance.pickle') 
-Well_Data_Imputed = Well_Data
-Well_Data_Imputed['Data'] = Imputed_Data
-imputation.Save_Pickle(Well_Data_Imputed, 'Well_Data_Imputed', data_root)
-imputation.Aquifer_Plot(Well_Data_Imputed['Data']) 
+imputation.Save_Pickle(Well_Data, 'Well_Data_Imputed', data_root)
+imputation.Aquifer_Plot(Well_Data['Data']) 
