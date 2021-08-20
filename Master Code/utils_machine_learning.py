@@ -159,6 +159,6 @@ class imputation():
 
     def Aquifer_Plot(self, imputed_df):
         plt.figure(figsize=(6,2))
-        plt.plot(imputed_df, '-.')
+        plt.plot(imputed_df)
         plt.title('Measured and Interpolated data for all wells')
         plt.savefig(self.figures_root  + '/' + 'Aquifer_Plot')

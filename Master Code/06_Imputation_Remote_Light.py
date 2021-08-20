@@ -43,7 +43,8 @@ GLDAS_Data = imputation.read_pickle('GLDAS_Data_Augmented', data_root)
 Feature_Index = GLDAS_Data[list(GLDAS_Data.keys())[0]].index
 
 ###### Importing Metrics and Creating Error DataFrame
-Sum_Metrics = pd.DataFrame(columns=['Train MSE','Validation MSE','Test MSE'])
+Summary_Metrics = pd.DataFrame(columns=['Train MSE','Validation MSE','Test MSE',
+                                        'Train MAE','Validation MAE','Test MAE'])
 ###### Feature importance Tracker
 Feature_Importance = pd.DataFrame()
 ###### Creating Empty Imputed DataFrame
@@ -96,7 +97,7 @@ for i, well in enumerate(Well_Data['Data'].columns):
         Well_set = Well_set[Well_set[Well_set.columns[1]].notnull()]
         Well_set_clean = Well_set.dropna()
         Y, X = imputation.Data_Split(Well_set_clean, well)
-        temp_metrics = pd.DataFrame(columns=['Train MSE', 'Validation MSE', 'Test MSE'])
+        temp_metrics = pd.DataFrame(columns=['Train MSE', 'Validation MSE', 'Test MSE', 'Train MAE','Validation MAE','Test MAE'])
         x_train, x_val, y_train, y_val = train_test_split(X, Y, test_size=0.30, random_state=42)
 
     ###### Model Initialization
@@ -120,7 +121,7 @@ for i, well in enumerate(Well_Data['Data'].columns):
         print(j)
         j += 1
         ###### Score and Tracking Metrics
-        Sum_Metrics.loc[cell] = temp_metrics.mean()
+        Summary_Metrics.loc[cell] = temp_metrics.mean()
         y_val_hat = model.predict(x_val)
         
         ###### Model Prediction
@@ -143,6 +144,6 @@ for i, well in enumerate(Well_Data['Data'].columns):
         print(e)
         
 Well_Data['Data'] = Imputed_Data
-Sum_Metrics.to_hdf(data_root  + '/' + '06_Metrics.h5', key='metrics', mode='w')
+Summary_Metrics.to_hdf(data_root  + '/' + '06_Metrics.h5', key='metrics', mode='w')
 imputation.Save_Pickle(Well_Data, 'Well_Data_Imputed', data_root)
 imputation.Aquifer_Plot(Well_Data['Data']) 

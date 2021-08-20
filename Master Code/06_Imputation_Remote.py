@@ -7,7 +7,7 @@ Created on Sat Dec 12 12:32:26 2020
 
 import pandas as pd
 import numpy as np
-import utils_imputation
+import utils_machine_learning
 import warnings
 from scipy.spatial.distance import cdist
 
@@ -21,7 +21,7 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Dropout
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.regularizers import L2
-
+from tensorflow.keras.metrics import RootMeanSquaredError, mean_absolute_error
 
 warnings.simplefilter(action='ignore')
 
@@ -31,7 +31,7 @@ data_root =    './Datasets/'
 figures_root = './Figures Imputed'
 
 ###### Model Setup
-imputation = utils_imputation.utils_imputation(data_root, figures_root)
+imputation = utils_machine_learning.imputation(data_root, figures_root)
 
 ###### Measured Well Data
 Original_Raw_Points = pd.read_hdf(data_root + '03_Original_Points.h5')
@@ -43,7 +43,9 @@ GLDAS_Data = imputation.read_pickle('GLDAS_Data_Augmented', data_root)
 Feature_Index = GLDAS_Data[list(GLDAS_Data.keys())[0]].index
 
 ###### Importing Metrics and Creating Error DataFrame
-Sum_Metrics = pd.DataFrame(columns=['Train MSE','Validation MSE','Test MSE'])
+Summary_Metrics = pd.DataFrame(columns=['Train MSE','Train RMSE', 'Train MAE',
+                                        'Validation MSE','Validation RMSE', 'Validation MAE',
+                                        'Test MSE','Test RMSE', 'Test MAE'])
 ###### Feature importance Tracker
 Feature_Importance = pd.DataFrame()
 ###### Creating Empty Imputed DataFrame
@@ -97,8 +99,8 @@ for i, well in enumerate(Well_Data['Data'].columns):
         Well_set_clean = Well_set.dropna()
         Y, X = imputation.Data_Split(Well_set_clean, well)
         (Y_kfold, X_kfold) = (Y.to_numpy(), X.to_numpy())
-        kfold = KFold(n_splits = 10, shuffle = True)
-        temp_metrics = pd.DataFrame(columns=['Train MSE', 'Validation MSE', 'Test MSE'])
+        kfold = KFold(n_splits = 5, shuffle = True)
+        temp_metrics = pd.DataFrame(columns=[Summary_Metrics.columns])
         j = 1
         for train_index, test_index in kfold.split(Y_kfold, X_kfold):
             x_train, x_test = X_kfold[train_index], X_kfold[test_index]
@@ -113,16 +115,17 @@ for i, well in enumerate(Well_Data['Data'].columns):
                 kernel_initializer='glorot_uniform', kernel_regularizer= L2(l2=0.01))) #he_normal
             model.add(Dropout(rate=0.2))
             model.add(Dense(1))
-            model.compile(optimizer = opt, loss='mse')
+            model.compile(optimizer = opt, loss='mse', metrics=[RootMeanSquaredError(), mean_absolute_error])
         
         ###### Hyper Paramter Adjustments
             early_stopping = callbacks.EarlyStopping(monitor='val_loss', patience=5, min_delta=0.0, restore_best_weights=True)
             history = model.fit(x_train, y_train, epochs=500, validation_data = (x_val, y_val), verbose= 3, callbacks=[early_stopping])
-            train_error = model.evaluate(x_train, y_train)
-            validation_error = model.evaluate(x_val, y_val)
-            test_error = model.evaluate(x_test, y_test)
-            df_metrics = pd.DataFrame(np.array([train_error, validation_error, test_error]).reshape((1,3)), 
-                                      index=([str(j)]), columns=(['Train MSE','Validation MSE','Test MSE']))
+            train_mse = model.evaluate(x_train, y_train)
+            validation_mse = model.evaluate(x_val, y_val)
+            test_mse = model.evaluate(x_test, y_test)
+            
+            df_metrics = pd.DataFrame(np.array([train_mse + validation_mse + test_mse]).reshape((1,9)), 
+                                      index=([str(j)]), columns=([Summary_Metrics.columns]))
             temp_metrics = pd.concat(objs=[temp_metrics, df_metrics])
             print(j)
             j += 1
@@ -134,7 +137,7 @@ for i, well in enumerate(Well_Data['Data'].columns):
         Feature_Importance = Feature_Importance.append(importance_df)
         
         ###### Score and Tracking Metrics
-        Sum_Metrics.loc[cell] = temp_metrics.mean()
+        Summary_Metrics.loc[cell] = temp_metrics.mean()
         y_test_hat = model.predict(x_test)
         
         ###### Model Prediction
@@ -157,7 +160,7 @@ for i, well in enumerate(Well_Data['Data'].columns):
         print(e)
 
 
-Sum_Metrics.to_hdf(data_root  + '/' + '06_Metrics.h5', key='metrics', mode='w')
+Summary_Metrics.to_hdf(data_root  + '/' + '06_Metrics.h5', key='metrics', mode='w')
 imputation.Feature_Importance_box_plot(Feature_Importance)
 Feature_Importance.to_pickle(data_root  + '/' + 'Feature_Importance.pickle') 
 Well_Data_Imputed = Well_Data
