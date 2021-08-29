@@ -5,7 +5,7 @@ Created on Wed Sep 23 17:12:27 2020
 @author: Saul Ramirez, PhD
 """
 import os
-import pickle
+import pickle5 as pickle
 import numpy as np
 import pandas as pd
 import datetime as dt
