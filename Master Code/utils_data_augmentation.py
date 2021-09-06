@@ -20,7 +20,7 @@ class Data_Augmentation():
         
         # EEMD Root location is created in order to save figures.
         if os.path.isdir(figures_root) is False:
-            os.makedirs(figures_root)
+            os.mkdir(figures_root)
         self.figures_root = figures_root
 
     # Opens generic pickle file based on file path and loads data.
