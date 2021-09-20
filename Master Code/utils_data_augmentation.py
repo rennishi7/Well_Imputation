@@ -6,7 +6,7 @@ Created on Thu Aug 12 12:12:00 2021
 """
 
 import os
-import pickle
+import pickle5 as pickle
 
 class Data_Augmentation():
     # Establish where files are located. If location doesn't exist, it will 
@@ -20,7 +20,7 @@ class Data_Augmentation():
         
         # EEMD Root location is created in order to save figures.
         if os.path.isdir(figures_root) is False:
-            os.mkdir(figures_root)
+            os.makedirs(figures_root)
         self.figures_root = figures_root
 
     # Opens generic pickle file based on file path and loads data.
@@ -31,9 +31,9 @@ class Data_Augmentation():
         return data
 
     # Saves generic pickle file based on file path and loads data.
-    def Save_Pickle(self, Data, name:str):
+    def Save_Pickle(self, Data, name:str, protocol:int = 3):
         with open(self.Data_root + '/' + name + '.pickle', 'wb') as handle:
-            pickle.dump(Data, handle, protocol=4)
+            pickle.dump(Data, handle, protocol=protocol)
     
     # Drops all missing values from row
     def DropNA(self, df):
